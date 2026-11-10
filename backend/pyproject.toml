@@ -1,0 +1,10 @@
+[project]
+name = "aqua-voice-uzbek-backend"
+version = "0.1.0"
+description = "O'zbek tili uchun AI ovozli matn muharriri backend (FastAPI + WebSockets + STT + LLM Intent & Diff Engine)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

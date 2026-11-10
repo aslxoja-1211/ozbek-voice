@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="uz" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aqua Voice Uzbek — Jonli Ovozli Muharrir (FastAPI Demo)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #090d16; color: #e2e8f0; }
+    .pulse-ring { animation: pulseRing 1.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55); }
+      70% { transform: scale(1); box-shadow: 0 0 0 14px rgba(56, 189, 248, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+  <div class="max-w-7xl mx-auto px-4 py-6 space-y-5">
+    <!-- Top Header -->
+    <header class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900/70 px-5 py-4 backdrop-blur">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-sky-500/20">
+          AV
+        </div>
+        <div>
+          <h1 class="text-lg font-semibold tracking-tight text-white">Aqua Voice Uzbek <span class="text-xs font-normal text-sky-400 ml-1">FastAPI Demo</span></h1>
+          <p class="text-xs text-slate-400">O'zbek tilida jonli ovozli diktovka, Intent Detection & Text Diff Engine</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <span id="wsBadge" class="inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-slate-300">
+          <span class="h-2 w-2 rounded-full bg-amber-400"></span> Ulanmoqda...
+        </span>
+        <span id="providerBadge" class="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-slate-300">
+          STT: — | LLM: —
+        </span>
+        <a href="/docs" target="_blank" class="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-sky-300 hover:bg-slate-700 transition">
+          Swagger Docs
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <!-- Editor Column -->
+      <section class="lg:col-span-7 flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-4 py-3 bg-slate-900/90">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-medium text-slate-200">Matn Muharriri</span>
+            <span id="strategyPill" class="hidden rounded-md bg-sky-500/15 px-2 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/30"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="undoBtn" class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-40" disabled>
+              Bekor qilish (Undo)
+            </button>
+            <button id="clearBtn" class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-rose-300 hover:bg-slate-700">
+              Tozalash
+            </button>
+          </div>
+        </div>
+
+        <textarea
+          id="editor"
+          rows="9"
+          placeholder="Mikrofonni bosib o'zbekcha gapiring yoki pastdan buyruq yuboring...&#10;&#10;Masalan:&#10;1) 'Bugun kecha boshlangan loyihani yakunlaymiz.'&#10;2) 'kecha so'zini bugun deb o'zgartir'&#10;3) 'oxirgi gapni ro'yxatga aylantir'"
+          class="w-full flex-1 resize-none bg-transparent p-5 text-base leading-relaxed text-slate-100 placeholder:text-slate-500 focus:outline-none font-sans"
+        ></textarea>
+
+        <!-- Live Translation Section (RU / EN) -->
+        <div class="border-t border-slate-800 bg-slate-900/55 px-4 py-3.5 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wider text-emerald-300">Tarjima</span>
+              <div class="inline-flex rounded-lg border border-slate-700 bg-slate-950/80 p-0.5 text-xs">
+                <button type="button" id="langRuBtn" class="rounded-md bg-emerald-500/20 px-2.5 py-1 font-medium text-emerald-300">Ruscha (RU)</button>
+                <button type="button" id="langEnBtn" class="rounded-md px-2.5 py-1 font-medium text-slate-400 hover:text-slate-200">Inglizcha (EN)</button>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span id="transMeta" class="font-mono text-slate-400"></span>
+              <button type="button" id="retransBtn" class="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-slate-300 hover:bg-slate-700">Qayta tarjima</button>
+              <button type="button" id="copyTransBtn" class="rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1 text-slate-300 hover:bg-slate-700">Nusxa</button>
+            </div>
+          </div>
+          <div id="translationOut" class="min-h-[84px] max-h-44 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950/65 px-3.5 py-2.5 text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">
+            <span class="text-slate-500">O'zbekcha matn kiritilganda bu yerda avtomatik tarjima chiqadi...</span>
+          </div>
+        </div>
+
+        <!-- Voice Control Dock -->
+        <div class="border-t border-slate-800 bg-slate-950/70 p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <button
+                id="micBtn"
+                class="flex items-center gap-2.5 rounded-xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-sky-400 transition shadow-lg shadow-sky-500/20"
+              >
+                <span id="micDot" class="h-2.5 w-2.5 rounded-full bg-slate-950"></span>
+                <span id="micLabel">Gapirish (Ctrl+Space)</span>
+              </button>
+              <button
+                id="handsFreeBtn"
+                type="button"
+                class="flex items-center gap-2 rounded-xl border border-violet-500/40 bg-violet-500/15 px-3.5 py-2.5 text-sm font-medium text-violet-300 hover:bg-violet-500/25 transition"
+              >
+                <span id="handsFreeLabel">Hands-Free (Auto-VAD)</span>
+              </button>
+              <button
+                id="browserMicBtn"
+                type="button"
+                class="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/25 transition"
+              >
+                <span id="browserMicLabel">Brauzer (uz-UZ)</span>
+              </button>
+              <div class="w-20 h-2.5 rounded-full bg-slate-800 overflow-hidden">
+                <div id="vuBar" class="h-full w-0 bg-gradient-to-r from-emerald-400 to-sky-400 transition-all duration-75"></div>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 text-xs">
+              <label class="text-slate-400">STT:</label>
+              <select id="sttSelect" class="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200">
+                <option value="">auto</option>
+                <option value="gemini">gemini (multimodal)</option>
+                <option value="local_whisper">local_whisper (offline)</option>
+                <option value="mock">mock</option>
+                <option value="mohirpool">mohirpool</option>
+                <option value="openai">openai</option>
+              </select>
+              <label class="text-slate-400 ml-1">LLM:</label>
+              <select id="llmSelect" class="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200">
+                <option value="">auto</option>
+                <option value="mock">mock</option>
+                <option value="gemini">gemini</option>
+                <option value="openai">openai</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Text Simulation Bar -->
+          <form id="simForm" class="flex gap-2">
+            <input
+              id="simInput"
+              type="text"
+              placeholder="Transkript / ovozli buyruqni sinash (masalan: kecha so'zini bugun deb o'zgartir)..."
+              class="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
+            />
+            <button type="submit" class="rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/25 transition">
+              Yuborish
+            </button>
+          </form>
+
+          <!-- Quick Uzbek Presets -->
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" data-cmd="Men kecha Toshkentda uchrashuv o'tkazdim." class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 hover:border-sky-500/50 hover:text-white">+ Diktovka</button>
+            <button type="button" data-cmd="kecha so'zini bugun deb o'zgartir" class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-amber-300 hover:border-amber-500/50">REPLACE: kecha -> bugun</button>
+            <button type="button" data-cmd="Toshkentni Samarqandga almashtir" class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-amber-300 hover:border-amber-500/50">REPLACE: Toshkent -> Samarqand</button>
+            <button type="button" data-cmd="oxirgi gapni ro'yxatga aylantir" class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-violet-300 hover:border-violet-500/50">FORMAT: Ro'yxat</button>
+            <button type="button" data-cmd="oxirgi gapni o'chir" class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-rose-300 hover:border-rose-500/50">DELETE: Oxirgi gap</button>
+            <button type="button" data-cmd="bekor qil" class="preset-btn rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-500">UNDO: Bekor qil</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Inspector Column -->
+      <aside class="lg:col-span-5 space-y-4">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-semibold text-white">Pipeline Natijasi & Latency</h2>
+            <span id="latencyBadge" class="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-mono text-slate-300">0 ms</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 text-center">
+            <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
+              <div class="text-[11px] text-slate-400">STT</div>
+              <div id="sttMs" class="text-sm font-mono font-semibold text-sky-300">0 ms</div>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
+              <div class="text-[11px] text-slate-400">LLM Intent</div>
+              <div id="llmMs" class="text-sm font-mono font-semibold text-emerald-300">0 ms</div>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
+              <div class="text-[11px] text-slate-400">Umumiy</div>
+              <div id="totalMs" class="text-sm font-mono font-semibold text-white">0 ms</div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs text-slate-400 mb-1">Xom transkript (`raw_transcript`):</div>
+            <div id="rawTranscript" class="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-200 min-h-[38px]">—</div>
+          </div>
+
+          <div>
+            <div class="text-xs text-slate-400 mb-1">Qat'iy LLM JSON Sxema:</div>
+            <pre id="jsonOut" class="rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs font-mono text-emerald-300 overflow-x-auto">{
+  "action": "APPEND",
+  "target": "",
+  "replacement": "",
+  "updated_full_text": null,
+  "confidence": 0.0
+}</pre>
+          </div>
+
+          <div id="noteBox" class="hidden rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"></div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+          <h2 class="text-sm font-semibold text-white mb-2">Amallar Tarixi</h2>
+          <ul id="historyList" class="space-y-2 max-h-56 overflow-y-auto text-xs">
+            <li class="text-slate-500">Hali amallar bajarilmadi.</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const editor = document.getElementById("editor");
+    const wsBadge = document.getElementById("wsBadge");
+    const providerBadge = document.getElementById("providerBadge");
+    const micBtn = document.getElementById("micBtn");
+    const micLabel = document.getElementById("micLabel");
+    const vuBar = document.getElementById("vuBar");
+    const simForm = document.getElementById("simForm");
+    const simInput = document.getElementById("simInput");
+    const undoBtn = document.getElementById("undoBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const sttSelect = document.getElementById("sttSelect");
+    const llmSelect = document.getElementById("llmSelect");
+    const rawTranscriptEl = document.getElementById("rawTranscript");
+    const jsonOutEl = document.getElementById("jsonOut");
+    const noteBox = document.getElementById("noteBox");
+    const strategyPill = document.getElementById("strategyPill");
+    const latencyBadge = document.getElementById("latencyBadge");
+    const sttMsEl = document.getElementById("sttMs");
+    const llmMsEl = document.getElementById("llmMs");
+    const totalMsEl = document.getElementById("totalMs");
+    const historyList = document.getElementById("historyList");
+
+    let ws = null;
+    let undoStack = [];
+    let redoStack = [];
+    let isRecording = false;
+    let isHandsFree = false;
+    let vadInSpeech = false;
+    let vadSpeechMs = 0;
+    let vadSilenceMs = 0;
+    let vadPreRoll = [];
+    let pttHeld = false;
+    let audioCtx = null;
+    let mediaStream = null;
+    let processorNode = null;
+    let sourceNode = null;
+
+    function pushUndo(text) {
+      undoStack.push(text);
+      redoStack = [];
+      undoBtn.disabled = undoStack.length === 0;
+    }
+
+    function connectWS() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${proto}//${location.host}/ws/voice`);
+
+      ws.onopen = () => {
+        wsBadge.innerHTML = '<span class="h-2 w-2 rounded-full bg-emerald-400"></span> WebSocket Ulangan';
+      };
+
+      ws.onclose = () => {
+        wsBadge.innerHTML = '<span class="h-2 w-2 rounded-full bg-rose-400"></span> Uzildi (qayta ulanmoqda...)';
+        setTimeout(connectWS, 1500);
+      };
+
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "connected") {
+          providerBadge.textContent = `STT: ${msg.active_stt} | LLM: ${msg.active_llm}`;
+        } else if (msg.type === "status") {
+          wsBadge.innerHTML = `<span class="h-2 w-2 rounded-full bg-sky-400 animate-ping"></span> ${msg.stage}...`;
+        } else if (msg.type === "result") {
+          wsBadge.innerHTML = '<span class="h-2 w-2 rounded-full bg-emerald-400"></span> WebSocket Ulangan';
+          renderResult(msg.payload);
+        } else if (msg.type === "translation_status") {
+          transMeta.textContent = "Tarjima qilinmoqda...";
+        } else if (msg.type === "translation_result") {
+          if (msg.payload.target_language === currentTargetLang) {
+            translationOut.textContent = msg.payload.translated_text || "";
+            transMeta.textContent = `${msg.payload.provider} · ${msg.payload.latency_ms.toFixed(0)} ms`;
+          }
+        } else if (msg.type === "translation_error") {
+          transMeta.textContent = "Tarjima xatosi";
+          translationOut.textContent = msg.message;
+        } else if (msg.type === "error") {
+          wsBadge.innerHTML = '<span class="h-2 w-2 rounded-full bg-rose-400"></span> Xatolik';
+          noteBox.textContent = msg.message;
+          noteBox.classList.remove("hidden");
+        }
+      };
+    }
+
+    function renderResult(payload) {
+      const { raw_transcript, command, diff, latency, providers, client_action, note } = payload;
+      if (client_action === "UNDO" && undoStack.length) {
+        redoStack.push(editor.value);
+        editor.value = undoStack.pop();
+        undoBtn.disabled = undoStack.length === 0;
+        requestTranslation(editor.value);
+      } else if (client_action === "REDO" && redoStack.length) {
+        undoStack.push(editor.value);
+        editor.value = redoStack.pop();
+        undoBtn.disabled = undoStack.length === 0;
+        requestTranslation(editor.value);
+      } else if (diff.changed) {
+        pushUndo(editor.value);
+        editor.value = diff.new_text;
+        requestTranslation(diff.new_text);
+      }
+
+      rawTranscriptEl.textContent = raw_transcript || "(bo'sh)";
+      jsonOutEl.textContent = JSON.stringify(command, null, 2);
+      providerBadge.textContent = `STT: ${providers.stt_provider} | LLM: ${providers.llm_provider}`;
+
+      sttMsEl.textContent = `${latency.stt_ms.toFixed(1)} ms`;
+      llmMsEl.textContent = `${latency.llm_ms.toFixed(1)} ms`;
+      totalMsEl.textContent = `${latency.total_ms.toFixed(1)} ms`;
+      latencyBadge.textContent = `${latency.total_ms.toFixed(0)} ms`;
+      latencyBadge.className = latency.llm_ms <= 800
+        ? "rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-xs font-mono text-emerald-300"
+        : "rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-mono text-amber-300";
+
+      strategyPill.textContent = `${command.action} • ${diff.applied_strategy}`;
+      strategyPill.classList.remove("hidden");
+
+      if (note) {
+        noteBox.textContent = note;
+        noteBox.classList.remove("hidden");
+      } else {
+        noteBox.classList.add("hidden");
+      }
+
+      if (historyList.firstElementChild?.classList.contains("text-slate-500")) {
+        historyList.innerHTML = "";
+      }
+      const item = document.createElement("li");
+      item.className = "rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 flex items-center justify-between gap-2";
+
+      const leftSpan = document.createElement("span");
+      leftSpan.className = "truncate text-slate-200";
+      const actionTag = document.createElement("strong");
+      actionTag.className = "text-sky-300";
+      actionTag.textContent = command.action;
+      leftSpan.appendChild(actionTag);
+      leftSpan.appendChild(document.createTextNode(` — ${raw_transcript || "(bo'sh)"}`));
+
+      const timeSpan = document.createElement("span");
+      timeSpan.className = "shrink-0 font-mono text-slate-400";
+      timeSpan.textContent = `${latency.total_ms.toFixed(0)}ms`;
+
+      item.appendChild(leftSpan);
+      item.appendChild(timeSpan);
+      historyList.prepend(item);
+    }
+
+    function sendTextCommand(text) {
+      if (!text.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "text_command",
+        editor_state: editor.value,
+        raw_transcript: text.trim(),
+        llm_provider: llmSelect.value || null,
+      }));
+    }
+
+    function floatTo16BitPCM(float32Array) {
+      const buffer = new ArrayBuffer(float32Array.length * 2);
+      const view = new DataView(buffer);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+      return buffer;
+    }
+
+    function downsampleTo16k(input, inputRate) {
+      if (inputRate === 16000) return input;
+      const ratio = inputRate / 16000;
+      const newLength = Math.round(input.length / ratio);
+      const result = new Float32Array(newLength);
+      let offsetResult = 0;
+      let offsetBuffer = 0;
+      while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+        let accum = 0;
+        let count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i++) {
+          accum += input[i];
+          count++;
+        }
+        result[offsetResult] = count ? accum / count : 0;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+      }
+      return result;
+    }
+
+    const handsFreeBtn = document.getElementById("handsFreeBtn");
+    const handsFreeLabel = document.getElementById("handsFreeLabel");
+
+    function sendStartUtterance() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "start_utterance",
+        editor_state: editor.value,
+        mime_type: "audio/pcm",
+        sample_rate: 16000,
+        stt_provider: sttSelect.value || null,
+        llm_provider: llmSelect.value || null,
+      }));
+    }
+
+    function sendEndUtterance() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "end_utterance",
+        editor_state: editor.value,
+        stt_provider: sttSelect.value || null,
+        llm_provider: llmSelect.value || null,
+      }));
+    }
+
+    async function startRecording(autoVadMode = false) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      vadInSpeech = false;
+      vadSpeechMs = 0;
+      vadSilenceMs = 0;
+      vadPreRoll = [];
+
+      if (!autoVadMode) {
+        sendStartUtterance();
+      }
+
+      processorNode.onaudioprocess = (event) => {
+        if ((!isRecording && !isHandsFree) || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const input = event.inputBuffer.getChannelData(0);
+        let sumSq = 0;
+        for (let i = 0; i < input.length; i++) sumSq += input[i] * input[i];
+        const rms = Math.sqrt(sumSq / input.length);
+        vuBar.style.width = `${Math.min(100, Math.round(rms * 450))}%`;
+
+        const downsampled = downsampleTo16k(input, audioCtx.sampleRate);
+        const pcmBuf = floatTo16BitPCM(downsampled);
+
+        if (!autoVadMode) {
+          ws.send(pcmBuf);
+          return;
+        }
+
+        const frameMs = (input.length / audioCtx.sampleRate) * 1000;
+        const speaking = rms >= 0.015;
+        if (!vadInSpeech) {
+          vadPreRoll.push(pcmBuf);
+          if (vadPreRoll.length > 3) vadPreRoll.shift();
+          if (speaking) {
+            vadInSpeech = true;
+            vadSpeechMs = frameMs;
+            vadSilenceMs = 0;
+            handsFreeLabel.textContent = "Gap eshitilmoqda...";
+            sendStartUtterance();
+            for (const f of vadPreRoll) ws.send(f);
+            vadPreRoll = [];
+          }
+          return;
+        }
+
+        ws.send(pcmBuf);
+        if (speaking) {
+          vadSpeechMs += frameMs;
+          vadSilenceMs = 0;
+        } else {
+          vadSilenceMs += frameMs;
+        }
+        if (vadSilenceMs >= 1200) {
+          const valid = vadSpeechMs >= 240;
+          vadInSpeech = false;
+          vadSpeechMs = 0;
+          vadSilenceMs = 0;
+          vadPreRoll = [];
+          handsFreeLabel.textContent = "Tinglanmoqda (jimlikda yuboriladi)";
+          if (valid) sendEndUtterance();
+        }
+      };
+
+      sourceNode.connect(processorNode);
+      processorNode.connect(audioCtx.destination);
+
+      if (autoVadMode) {
+        isHandsFree = true;
+        handsFreeBtn.classList.add("pulse-ring", "border-emerald-400", "bg-emerald-500/20", "text-emerald-200");
+        handsFreeLabel.textContent = "Tinglanmoqda (jimlikda yuboriladi)";
+      } else {
+        isRecording = true;
+        micBtn.classList.add("pulse-ring", "bg-rose-500", "hover:bg-rose-400");
+        micBtn.classList.remove("bg-sky-500", "hover:bg-sky-400");
+        micLabel.textContent = "To'xtatish va tahlil qilish";
+      }
+    }
+
+    async function stopRecording(sendCommit = true) {
+      const wasHandsFreeSpeech = isHandsFree && vadInSpeech && vadSpeechMs >= 240;
+      isRecording = false;
+      isHandsFree = false;
+      vadInSpeech = false;
+      vuBar.style.width = "0%";
+      if (processorNode) processorNode.disconnect();
+      if (sourceNode) sourceNode.disconnect();
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      if (audioCtx) await audioCtx.close();
+
+      micBtn.classList.remove("pulse-ring", "bg-rose-500", "hover:bg-rose-400");
+      micBtn.classList.add("bg-sky-500", "hover:bg-sky-400");
+      micLabel.textContent = "Gapirish (Ctrl+Space)";
+      handsFreeBtn.classList.remove("pulse-ring", "border-emerald-400", "bg-emerald-500/20", "text-emerald-200");
+      handsFreeLabel.textContent = "Hands-Free (Auto-VAD)";
+
+      if (sendCommit || wasHandsFreeSpeech) {
+        sendEndUtterance();
+      }
+    }
+
+    const browserMicBtn = document.getElementById("browserMicBtn");
+    const browserMicLabel = document.getElementById("browserMicLabel");
+    let speechRec = null;
+    let isBrowserListening = false;
+
+    browserMicBtn.addEventListener("click", () => {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        noteBox.textContent = "Brauzeringiz Web Speech API ni qo'llamaydi (Chrome yoki Edge ishlating).";
+        noteBox.classList.remove("hidden");
+        return;
+      }
+      if (isBrowserListening && speechRec) {
+        speechRec.stop();
+        return;
+      }
+      speechRec = new SR();
+      speechRec.lang = "uz-UZ";
+      speechRec.interimResults = false;
+      speechRec.continuous = false;
+
+      speechRec.onstart = () => {
+        isBrowserListening = true;
+        browserMicBtn.classList.add("pulse-ring", "bg-rose-500/25", "border-rose-400", "text-rose-200");
+        browserMicLabel.textContent = "Eshitilmoqda (uz-UZ)...";
+      };
+      speechRec.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || "";
+        if (transcript.trim()) sendTextCommand(transcript.trim());
+      };
+      speechRec.onerror = (event) => {
+        noteBox.textContent = `Brauzer ovoz xatoligi: ${event.error}`;
+        noteBox.classList.remove("hidden");
+      };
+      speechRec.onend = () => {
+        isBrowserListening = false;
+        browserMicBtn.classList.remove("pulse-ring", "bg-rose-500/25", "border-rose-400", "text-rose-200");
+        browserMicLabel.textContent = "Brauzer ovozi (uz-UZ)";
+      };
+      speechRec.start();
+    });
+
+    micBtn.addEventListener("click", async () => {
+      try {
+        if (isHandsFree) {
+          await stopRecording(false);
+        } else if (!isRecording) {
+          await startRecording(false);
+        } else {
+          await stopRecording(true);
+        }
+      } catch (err) {
+        noteBox.textContent = `Mikrofon xatoligi: ${err.message}`;
+        noteBox.classList.remove("hidden");
+        isRecording = false;
+      }
+    });
+
+    handsFreeBtn.addEventListener("click", async () => {
+      try {
+        if (isHandsFree) {
+          await stopRecording(false);
+        } else {
+          if (isRecording) await stopRecording(true);
+          await startRecording(true);
+        }
+      } catch (err) {
+        noteBox.textContent = `Mikrofon xatoligi: ${err.message}`;
+        noteBox.classList.remove("hidden");
+        isHandsFree = false;
+      }
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.ctrlKey && e.code === "Space" && !e.repeat && !isRecording && !isHandsFree) {
+        e.preventDefault();
+        pttHeld = true;
+        void startRecording(false);
+      }
+    });
+
+    const releaseDemoPtt = () => {
+      if (!pttHeld) return;
+      pttHeld = false;
+      void stopRecording(true);
+    };
+
+    window.addEventListener("keyup", (e) => {
+      if (pttHeld && (e.code === "Space" || e.key === "Control")) {
+        e.preventDefault();
+        releaseDemoPtt();
+      }
+    });
+    window.addEventListener("blur", releaseDemoPtt);
+
+    simForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      sendTextCommand(simInput.value);
+      simInput.value = "";
+    });
+
+    document.querySelectorAll(".preset-btn").forEach((btn) => {
+      btn.addEventListener("click", () => sendTextCommand(btn.dataset.cmd));
+    });
+
+    const translationOut = document.getElementById("translationOut");
+    const transMeta = document.getElementById("transMeta");
+    const langRuBtn = document.getElementById("langRuBtn");
+    const langEnBtn = document.getElementById("langEnBtn");
+    const retransBtn = document.getElementById("retransBtn");
+    const copyTransBtn = document.getElementById("copyTransBtn");
+    let currentTargetLang = "ru";
+    let transDebounce = null;
+
+    function requestTranslation(text, force = false) {
+      const clean = (text || "").trim();
+      if (!clean) {
+        translationOut.textContent = "";
+        transMeta.textContent = "";
+        return;
+      }
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: "translate",
+        text: clean,
+        target_language: currentTargetLang,
+        provider: llmSelect.value || null,
+      }));
+    }
+
+    function setTargetLang(lang) {
+      currentTargetLang = lang;
+      if (lang === "ru") {
+        langRuBtn.className = "rounded-md bg-emerald-500/20 px-2.5 py-1 font-medium text-emerald-300";
+        langEnBtn.className = "rounded-md px-2.5 py-1 font-medium text-slate-400 hover:text-slate-200";
+      } else {
+        langEnBtn.className = "rounded-md bg-sky-500/20 px-2.5 py-1 font-medium text-sky-300";
+        langRuBtn.className = "rounded-md px-2.5 py-1 font-medium text-slate-400 hover:text-slate-200";
+      }
+      requestTranslation(editor.value, true);
+    }
+
+    langRuBtn.addEventListener("click", () => setTargetLang("ru"));
+    langEnBtn.addEventListener("click", () => setTargetLang("en"));
+    retransBtn.addEventListener("click", () => requestTranslation(editor.value, true));
+    copyTransBtn.addEventListener("click", () => {
+      const txt = translationOut.textContent || "";
+      if (!txt) return;
+      navigator.clipboard.writeText(txt);
+      copyTransBtn.textContent = "Nusxa olindi";
+      setTimeout(() => { copyTransBtn.textContent = "Nusxa"; }, 1400);
+    });
+    editor.addEventListener("input", () => {
+      clearTimeout(transDebounce);
+      transDebounce = setTimeout(() => requestTranslation(editor.value), 650);
+    });
+
+    undoBtn.addEventListener("click", () => {
+      if (!undoStack.length) return;
+      editor.value = undoStack.pop();
+      undoBtn.disabled = undoStack.length === 0;
+      requestTranslation(editor.value);
+    });
+
+    clearBtn.addEventListener("click", () => {
+      if (!editor.value) return;
+      pushUndo(editor.value);
+      editor.value = "";
+      requestTranslation("");
+    });
+
+    connectWS();
+  </script>
+</body>
+</html>
