@@ -1,5 +1,7 @@
 """Local offline Speech-to-Text adapter powered by faster-whisper."""
 
+from __future__ import annotations
+
 import asyncio
 import ctypes
 import importlib.util
@@ -9,8 +11,10 @@ import sys
 import wave
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import numpy as np
+if TYPE_CHECKING:
+    import numpy as np
 
 from app.audio.pcm_utils import (
     compute_pcm16_rms,
@@ -105,6 +109,8 @@ def _pcm16_to_float32_16k(
     channels: int = 1,
 ) -> np.ndarray:
     """Convert raw PCM16 bytes directly into 16kHz mono float32 ndarray."""
+    import numpy as np
+
     aligned = len(pcm_bytes) - (len(pcm_bytes) % (2 * channels))
     if aligned <= 0:
         return np.zeros(0, dtype=np.float32)
@@ -201,7 +207,9 @@ class LocalWhisperSTTProvider(STTProvider):
                 return "", "Mikrofondan sukut yoki juda qisqa audio keldi."
 
         audio_input = _decode_to_whisper_input(audio_bytes, mime_type, sample_rate)
-        if isinstance(audio_input, np.ndarray):
+        if not isinstance(audio_input, io.BytesIO):
+            import numpy as np
+
             if len(audio_input) == 0:
                 return "", "Bo'sh audio."
             rms = float(np.sqrt(np.mean(audio_input ** 2)))

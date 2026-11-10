@@ -32,8 +32,21 @@ import type {
   WSServerMessage,
 } from "@/types/editor";
 
-const WS_URL =
-  process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/voice";
+function resolveWebSocketUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_WS_URL?.trim();
+  if (configured) {
+    return configured;
+  }
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, host, port } = window.location;
+    if ((hostname === "localhost" || hostname === "127.0.0.1") && port === "3000") {
+      return "ws://localhost:8000/ws/voice";
+    }
+    const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
+    return `${wsProtocol}//${host}/ws/voice`;
+  }
+  return "ws://localhost:8000/ws/voice";
+}
 
 const UZBEK_PRESETS = [
   {
@@ -237,7 +250,7 @@ export default function VoiceEditorWorkspace() {
 
     const connect = () => {
       if (unmounted) return;
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(resolveWebSocketUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {

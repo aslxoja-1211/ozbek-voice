@@ -2,7 +2,26 @@
 name = "aqua-voice-uzbek-backend"
 version = "0.1.0"
 description = "O'zbek tili uchun AI ovozli matn muharriri backend (FastAPI + WebSockets + STT + LLM Intent & Diff Engine)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "httpx>=0.28.0",
+    "python-multipart>=0.0.18",
+    "python-dotenv>=1.0.1",
+    "google-genai>=1.0.0",
+    "openai>=1.58.0",
+    "websockets>=14.0",
+]
+
+[project.optional-dependencies]
+local = ["faster-whisper>=1.1.0"]
+dev = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0"]
+
+[tool.vercel]
+entrypoint = "app.main:app"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
