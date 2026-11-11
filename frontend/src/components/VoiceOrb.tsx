@@ -248,17 +248,17 @@ export default function VoiceOrb({
       onPointerCancel={finishPress}
       onContextMenu={(e) => e.preventDefault()}
       aria-label="Bosib turib o'zbekcha gapiring"
-      className={`group relative flex aspect-square w-56 sm:w-64 items-center justify-center rounded-[48px] bg-[#05070c] border border-white/10 shadow-[0_28px_70px_-18px_rgba(8,38,74,0.45)] transition-transform duration-200 touch-none select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/50 ${
+      className={`group relative flex aspect-square w-44 sm:w-56 md:w-64 items-center justify-center rounded-[40px] sm:rounded-[48px] bg-[#05070c] border border-white/10 shadow-[0_28px_70px_-18px_rgba(8,38,74,0.45)] transition-transform duration-200 touch-none select-none focus:outline-none focus-visible:ring-4 focus-visible:ring-sky-400/50 ${
         isListening
           ? "scale-[1.03] shadow-[0_32px_80px_-12px_rgba(14,165,233,0.5)]"
           : "hover:scale-[1.015] active:scale-[1.025]"
       }`}
     >
       {/* Subtle Apple-like inner top specular sheen */}
-      <span className="pointer-events-none absolute inset-[2px] rounded-[46px] bg-gradient-to-b from-white/[0.08] via-transparent to-transparent" />
+      <span className="pointer-events-none absolute inset-[2px] rounded-[38px] sm:rounded-[46px] bg-gradient-to-b from-white/[0.08] via-transparent to-transparent" />
       <canvas
         ref={canvasRef}
-        className="pointer-events-none h-full w-full rounded-[48px]"
+        className="pointer-events-none h-full w-full rounded-[40px] sm:rounded-[48px]"
       />
     </button>
   );

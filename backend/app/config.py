@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     local_whisper_compute_type: str = Field(default="float16")
 
     gemini_api_key: str = Field(default="")
-    gemini_model: str = Field(default="gemini-3.5-flash-lite")
+    gemini_model: str = Field(default="gemini-3.5-flash")
 
     openai_api_key: str = Field(default="")
     openai_stt_model: str = Field(default="whisper-1")

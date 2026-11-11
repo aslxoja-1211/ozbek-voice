@@ -29,6 +29,7 @@ from app.models.schemas import (
     TranslateResponse,
 )
 from app.pipeline import VoiceEditorPipeline
+from app.services.gemini_client import format_user_friendly_error
 from app.services.llm.base import LLMConfigurationError
 from app.services.stt.base import STTConfigurationError
 from app.services.stt.local_whisper import (
@@ -146,7 +147,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         except (LLMConfigurationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"LLM xatoligi: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=format_user_friendly_error(exc)
+            ) from exc
 
     @app.post("/api/v1/process-audio", response_model=PipelineResponse)
     async def process_audio(
@@ -179,7 +182,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         except (STTConfigurationError, LLMConfigurationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Pipeline xatoligi: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=format_user_friendly_error(exc)
+            ) from exc
 
     @app.post("/api/v1/translate", response_model=TranslateResponse)
     async def translate_text(
@@ -196,7 +201,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         except (TranslationConfigurationError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Tarjima xatoligi: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=format_user_friendly_error(exc)
+            ) from exc
 
     @app.websocket("/ws/voice")
     async def voice_websocket(websocket: WebSocket) -> None:
@@ -316,7 +323,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                         raise
                     except Exception as exc:
                         await websocket.send_json(
-                            {"type": "error", "message": str(exc)}
+                            {"type": "error", "message": format_user_friendly_error(exc)}
                         )
 
                 elif msg_type == "text_command":
@@ -345,7 +352,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                         raise
                     except Exception as exc:
                         await websocket.send_json(
-                            {"type": "error", "message": str(exc)}
+                            {"type": "error", "message": format_user_friendly_error(exc)}
                         )
 
                 elif msg_type == "translate":
@@ -380,7 +387,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                         raise
                     except Exception as exc:
                         await websocket.send_json(
-                            {"type": "translation_error", "message": str(exc)}
+                            {
+                                "type": "translation_error",
+                                "message": format_user_friendly_error(exc),
+                            }
                         )
                 else:
                     await websocket.send_json(

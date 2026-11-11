@@ -470,7 +470,7 @@ export default function VoiceEditorWorkspace() {
     : "Bosib turib gapiring · Space / Ctrl+Space";
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col overflow-x-hidden">
       {/* Minimal Nest-style Top Bar */}
       <header className="w-full max-w-6xl mx-auto px-5 sm:px-8 pt-6 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -492,11 +492,11 @@ export default function VoiceEditorWorkspace() {
         </div>
       </header>
 
-      {/* Main 2-Column Layout matching sketch */}
-      <main className="flex-1 w-full max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10 flex items-center">
-        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
-          {/* Left Column: Apple Siri Dark Squircle Voice Orb */}
-          <div className="lg:col-span-4 flex flex-col items-center justify-center gap-4">
+      {/* Main 2-Column Layout: Editor first on mobile, Orb under thumb; Orb left on desktop */}
+      <main className="flex-1 w-full max-w-6xl mx-auto px-5 sm:px-8 py-5 sm:py-10 flex items-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 lg:gap-10 items-center">
+          {/* Left on desktop / Bottom under thumb on mobile */}
+          <div className="order-2 lg:order-1 lg:col-span-4 min-w-0 flex flex-col items-center justify-center gap-3.5">
             <VoiceOrb
               isListening={isListening}
               isProcessing={Boolean(stageText)}
@@ -506,7 +506,7 @@ export default function VoiceEditorWorkspace() {
               onPressEnd={() => void endHoldToTalk()}
             />
             <p
-              className={`text-center text-xs sm:text-sm font-medium transition-colors ${
+              className={`max-w-xs sm:max-w-sm break-words text-center text-xs sm:text-sm font-medium transition-colors ${
                 errorMsg
                   ? "text-rose-600"
                   : isListening
@@ -518,8 +518,8 @@ export default function VoiceEditorWorkspace() {
             </p>
           </div>
 
-          {/* Right Column: 5 Clean Action Buttons + Main Editor & Translation Card */}
-          <div className="lg:col-span-8 flex flex-col gap-3.5 relative">
+          {/* Right on desktop / Top on mobile: 5 Action Buttons + Editor & Translation Card */}
+          <div className="order-1 lg:order-2 lg:col-span-8 min-w-0 flex flex-col gap-3.5 relative">
             {/* 5 Top-Right Action Squares (from sketch) */}
             <div className="flex items-center justify-between sm:justify-start gap-2.5">
               {/* 1. Undo */}
@@ -663,7 +663,7 @@ export default function VoiceEditorWorkspace() {
                 </div>
 
                 {translationError ? (
-                  <p className="text-xs text-rose-600">{translationError}</p>
+                  <p className="text-xs text-rose-600 break-words">{translationError}</p>
                 ) : (
                   <div className="min-h-[76px] max-h-40 overflow-y-auto text-[14px] sm:text-[15px] leading-relaxed text-slate-700 whitespace-pre-wrap">
                     {translatedText || (

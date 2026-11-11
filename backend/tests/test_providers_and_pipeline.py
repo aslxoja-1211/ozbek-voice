@@ -3,6 +3,12 @@
 import pytest
 
 from app.config import Settings
+from app.services.gemini_client import (
+    _mark_cooldown,
+    clear_model_cooldowns,
+    format_user_friendly_error,
+    ordered_gemini_models,
+)
 from app.services.llm.base import LLMConfigurationError
 from app.services.llm.factory import create_intent_engine
 from app.services.stt.base import STTConfigurationError
@@ -89,3 +95,19 @@ def test_local_whisper_factory_instantiation():
     provider = create_stt_provider(cfg)
     assert provider.name == "local_whisper"
     assert provider.is_mock is False
+
+
+def test_gemini_error_formatting_and_cooldown_rotation():
+    clear_model_cooldowns()
+    msg_429 = format_user_friendly_error(
+        RuntimeError("429 RESOURCE_EXHAUSTED {'error': {'code': 429}}")
+    )
+    assert "429" in msg_429
+    assert "{" not in msg_429
+
+    assert "Timeout" in format_user_friendly_error(TimeoutError()) or "vaqti" in format_user_friendly_error(TimeoutError())
+
+    _mark_cooldown("gemini-3.5-flash", RuntimeError("429 RESOURCE_EXHAUSTED"))
+    ordered = ordered_gemini_models("gemini-3.5-flash")
+    assert ordered[0] != "gemini-3.5-flash"
+    clear_model_cooldowns()
