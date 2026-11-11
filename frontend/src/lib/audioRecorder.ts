@@ -87,6 +87,22 @@ export class PcmVoiceRecorder {
     this.preRoll = [];
     this.callbacks = callbacks;
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(
+        "Brauzer mikrofonga ruxsat bermadi (telefon uchun HTTPS manzil talab qilinadi)."
+      );
+    }
+
+    // Create/resume AudioContext synchronously inside user gesture for iOS Safari & Android Chrome
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
+    this.audioCtx = new AudioCtx();
+    if (this.audioCtx.state === "suspended") {
+      void this.audioCtx.resume();
+    }
+
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
@@ -96,12 +112,6 @@ export class PcmVoiceRecorder {
       },
     });
 
-    const AudioCtx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext;
-
-    this.audioCtx = new AudioCtx();
     if (this.audioCtx.state === "suspended") {
       await this.audioCtx.resume();
     }

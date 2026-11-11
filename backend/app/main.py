@@ -18,6 +18,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
 from app.models.schemas import (
@@ -40,6 +41,7 @@ from app.services.translation import (
 )
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+FRONTEND_OUT_DIR = Path(__file__).resolve().parents[2] / "frontend" / "out"
 
 
 def create_app(settings: Optional[Settings] = None) -> FastAPI:
@@ -107,6 +109,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         )
 
     @app.get("/", include_in_schema=False)
+    async def serve_root_app() -> Any:
+        """Serve the exported Next.js app if built, otherwise fall back to demo.html."""
+        next_index = FRONTEND_OUT_DIR / "index.html"
+        if next_index.exists():
+            return FileResponse(next_index)
+        return await serve_demo_page()
+
     @app.get("/demo", include_in_schema=False)
     async def serve_demo_page() -> Any:
         """Serve the standalone Python test & live voice demo page."""
@@ -380,6 +389,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
         except WebSocketDisconnect:
             return
+
+    next_assets = FRONTEND_OUT_DIR / "_next"
+    if next_assets.is_dir():
+        app.mount(
+            "/_next",
+            StaticFiles(directory=str(next_assets)),
+            name="next-assets",
+        )
 
     return app
 

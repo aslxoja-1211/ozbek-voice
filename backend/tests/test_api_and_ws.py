@@ -36,7 +36,11 @@ def test_health_and_demo_page():
     assert body["active_stt"] == "mock"
     assert body["active_llm"] == "mock"
 
-    demo = client.get("/")
+    root = client.get("/")
+    assert root.status_code == 200
+    assert "Aqua Voice" in root.text
+
+    demo = client.get("/demo")
     assert demo.status_code == 200
     assert "Aqua Voice Uzbek" in demo.text
 
