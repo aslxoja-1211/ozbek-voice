@@ -3,17 +3,15 @@
 import asyncio
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Optional
 
 from google import genai
 from google.genai import types
 
 DEFAULT_GEMINI_FLASH_MODELS = (
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.7-flash",
-    "gemini-3.8-flash",
     "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
     "gemini-3.6-flash",
 )
 
@@ -30,10 +28,20 @@ def _mark_cooldown(model_name: str, exc: Exception) -> None:
     msg = str(exc).upper()
     if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "QUOTA" in msg:
         _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 900.0
-    elif "404" in msg or "NOT_FOUND" in msg:
+    elif "404" in msg or "NOT_FOUND" in msg or "400" in msg or "INVALID_ARGUMENT" in msg:
         _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 3600.0
+    elif isinstance(exc, TimeoutError) or "TIMEOUT" in msg or "503" in msg or "UNAVAILABLE" in msg:
+        _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 180.0
     else:
-        _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 45.0
+        _MODEL_COOLDOWN_UNTIL[model_name] = time.monotonic() + 60.0
+
+
+def thinking_config_for_model(model_name: str) -> Optional[types.ThinkingConfig]:
+    """Disable thinking tokens on models supporting thinking_budget=0 for minimal latency."""
+    lower = model_name.lower()
+    if "lite" in lower and "3.1-flash-lite" not in lower:
+        return None
+    return types.ThinkingConfig(thinking_budget=0)
 
 
 def format_user_friendly_error(exc: Exception) -> str:
@@ -90,10 +98,16 @@ async def generate_with_failover(
     contents: Any,
     config_builder: Callable[[str], types.GenerateContentConfig],
     per_attempt_timeout_s: float = 4.5,
+    total_budget_s: float = 12.0,
 ) -> tuple[Any, str]:
     """Run generate_content across candidate models with tight timeout and cooldowns."""
     last_error: Exception | None = None
+    deadline = time.monotonic() + max(per_attempt_timeout_s, total_budget_s)
     for model_name in models:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.3 and last_error is not None:
+            break
+        attempt_timeout = min(per_attempt_timeout_s, max(1.0, remaining))
         try:
             response = await asyncio.wait_for(
                 client.aio.models.generate_content(
@@ -101,7 +115,7 @@ async def generate_with_failover(
                     contents=contents,
                     config=config_builder(model_name),
                 ),
-                timeout=per_attempt_timeout_s,
+                timeout=attempt_timeout,
             )
             _MODEL_COOLDOWN_UNTIL.pop(model_name, None)
             return response, model_name

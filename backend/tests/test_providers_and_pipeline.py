@@ -4,10 +4,12 @@ import pytest
 
 from app.config import Settings
 from app.services.gemini_client import (
+    DEFAULT_GEMINI_FLASH_MODELS,
     _mark_cooldown,
     clear_model_cooldowns,
     format_user_friendly_error,
     ordered_gemini_models,
+    thinking_config_for_model,
 )
 from app.services.llm.base import LLMConfigurationError
 from app.services.llm.factory import create_intent_engine
@@ -110,4 +112,19 @@ def test_gemini_error_formatting_and_cooldown_rotation():
     _mark_cooldown("gemini-3.5-flash", RuntimeError("429 RESOURCE_EXHAUSTED"))
     ordered = ordered_gemini_models("gemini-3.5-flash")
     assert ordered[0] != "gemini-3.5-flash"
+
+    assert DEFAULT_GEMINI_FLASH_MODELS[0] == "gemini-3.1-flash-lite"
+    assert "gemini-3.7-flash" not in DEFAULT_GEMINI_FLASH_MODELS
+    assert "gemini-3.8-flash" not in DEFAULT_GEMINI_FLASH_MODELS
+
+    cfg_31 = thinking_config_for_model("gemini-3.1-flash-lite")
+    assert cfg_31 is not None and cfg_31.thinking_budget == 0
+    assert thinking_config_for_model("gemini-3.5-flash-lite") is None
+    cfg_35 = thinking_config_for_model("gemini-3.5-flash")
+    assert cfg_35 is not None and cfg_35.thinking_budget == 0
+
+    clear_model_cooldowns()
+    _mark_cooldown("gemini-3.1-flash-lite", TimeoutError("timeout"))
+    rotated = ordered_gemini_models("gemini-3.1-flash-lite")
+    assert rotated[0] != "gemini-3.1-flash-lite"
     clear_model_cooldowns()

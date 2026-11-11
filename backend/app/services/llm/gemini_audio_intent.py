@@ -19,6 +19,7 @@ from app.services.gemini_client import (
     create_gemini_client,
     generate_with_failover,
     ordered_gemini_models,
+    thinking_config_for_model,
 )
 from app.services.llm.prompts import UZBEK_INTENT_SYSTEM_PROMPT
 
@@ -55,26 +56,21 @@ class GeminiSingleShotAudioEngine:
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-3.5-flash-lite",
+        model: str = "gemini-3.1-flash-lite",
         timeout_ms: int = 10000,
-        per_attempt_timeout_s: float = 6.0,
+        per_attempt_timeout_s: float = 5.0,
     ) -> None:
         self._client = create_gemini_client(api_key=api_key, timeout_ms=timeout_ms)
         self._model = model
         self._per_attempt_timeout_s = per_attempt_timeout_s
 
     def _build_config(self, model_name: str) -> types.GenerateContentConfig:
-        use_thinking_budget = "lite" not in model_name.lower()
         return types.GenerateContentConfig(
             system_instruction=SINGLE_SHOT_SYSTEM_PROMPT,
             temperature=0.05,
             response_mime_type="application/json",
             response_schema=SingleShotAudioCommand,
-            thinking_config=(
-                types.ThinkingConfig(thinking_budget=0)
-                if use_thinking_budget
-                else None
-            ),
+            thinking_config=thinking_config_for_model(model_name),
         )
 
     async def process_audio(

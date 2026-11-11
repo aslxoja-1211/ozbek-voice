@@ -12,6 +12,7 @@ from app.services.gemini_client import (
     create_gemini_client,
     generate_with_failover,
     ordered_gemini_models,
+    thinking_config_for_model,
 )
 
 LANGUAGE_LABELS: dict[TranslationLanguage, str] = {
@@ -99,15 +100,10 @@ class TranslationService:
         instruction = _build_translation_instruction(target_language)
 
         def build_cfg(model_name: str) -> types.GenerateContentConfig:
-            use_thinking_budget = "lite" not in model_name.lower()
             return types.GenerateContentConfig(
                 system_instruction=instruction,
                 temperature=0.15,
-                thinking_config=(
-                    types.ThinkingConfig(thinking_budget=0)
-                    if use_thinking_budget
-                    else None
-                ),
+                thinking_config=thinking_config_for_model(model_name),
             )
 
         response, used_model = await generate_with_failover(
@@ -115,7 +111,8 @@ class TranslationService:
             models=ordered_gemini_models(self._settings.gemini_model),
             contents=text,
             config_builder=build_cfg,
-            per_attempt_timeout_s=8.0,
+            per_attempt_timeout_s=4.5,
+            total_budget_s=11.0,
         )
         translated = (response.text or "").strip()
         latency_ms = round((time.perf_counter() - start) * 1000.0, 2)
