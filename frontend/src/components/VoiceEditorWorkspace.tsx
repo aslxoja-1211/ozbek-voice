@@ -5,141 +5,102 @@ import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
-  Bold,
   Check,
   Copy,
   Eraser,
-  Heading1,
+  HelpCircle,
   Languages,
-  List,
-  Mic,
-  MicOff,
-  Redo2,
   RefreshCw,
-  Send,
-  Sparkles,
   Undo2,
-  Wifi,
-  WifiOff,
 } from "lucide-react";
 
+import VoiceOrb from "@/components/VoiceOrb";
 import { PcmVoiceRecorder } from "@/lib/audioRecorder";
 import { applyTextToTiptap, serializeEditorState } from "@/lib/tiptapSync";
 import type {
-  HistoryEntry,
   PipelineResponse,
   TranslationLanguage,
   WSServerMessage,
 } from "@/types/editor";
 
-function resolveWebSocketUrl(): string {
+const STORAGE_KEY = "aqua-voice-uzbek-doc-v1";
+
+function resolveWsUrl(): string {
   const configured = process.env.NEXT_PUBLIC_WS_URL?.trim();
-  if (configured) {
+  if (typeof window === "undefined") {
+    return configured ?? "ws://localhost:8000/ws/voice";
+  }
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  if (configured && !configured.includes("localhost") && !configured.includes("127.0.0.1")) {
     return configured;
   }
-  if (typeof window !== "undefined") {
-    const { protocol, hostname, host, port } = window.location;
-    if ((hostname === "localhost" || hostname === "127.0.0.1") && port === "3000") {
-      return "ws://localhost:8000/ws/voice";
-    }
-    const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
-    return `${wsProtocol}//${host}/ws/voice`;
+  if (window.location.port === "3000") {
+    return `${proto}//${window.location.hostname}:8000/ws/voice`;
   }
-  return "ws://localhost:8000/ws/voice";
+  return `${proto}//${window.location.host}/ws/voice`;
 }
 
-const UZBEK_PRESETS = [
-  {
-    label: "+ Diktovka",
-    cmd: "Men kecha Toshkentda uchrashuv o'tkazdim.",
-    tone: "text-sky-300 border-sky-500/30 hover:border-sky-400",
-  },
-  {
-    label: "REPLACE: kecha -> bugun",
-    cmd: "kecha so'zini bugun deb o'zgartir",
-    tone: "text-amber-300 border-amber-500/30 hover:border-amber-400",
-  },
-  {
-    label: "REPLACE: Toshkent -> Samarqand",
-    cmd: "Toshkentni Samarqandga almashtir",
-    tone: "text-amber-300 border-amber-500/30 hover:border-amber-400",
-  },
-  {
-    label: "FORMAT: Ro'yxat",
-    cmd: "oxirgi gapni ro'yxatga aylantir",
-    tone: "text-violet-300 border-violet-500/30 hover:border-violet-400",
-  },
-  {
-    label: "DELETE: Oxirgi gap",
-    cmd: "oxirgi gapni o'chir",
-    tone: "text-rose-300 border-rose-500/30 hover:border-rose-400",
-  },
-  {
-    label: "UNDO: Bekor qil",
-    cmd: "bekor qil",
-    tone: "text-slate-300 border-slate-600 hover:border-slate-400",
-  },
-];
+interface SavedWorkspaceState {
+  text: string;
+  targetLang: TranslationLanguage;
+  translatedText: string;
+}
 
 export default function VoiceEditorWorkspace() {
   const [wsConnected, setWsConnected] = useState(false);
   const [stageText, setStageText] = useState<string>("");
-  const [activeProviders, setActiveProviders] = useState({
-    stt: "auto",
-    llm: "auto",
-  });
-  const [sttOverride, setSttOverride] = useState<string>("");
-  const [llmOverride, setLlmOverride] = useState<string>("");
-  const [isRecording, setIsRecording] = useState(false);
-  const [isHandsFree, setIsHandsFree] = useState(false);
-  const [vadSpeaking, setVadSpeaking] = useState(false);
-  const [isBrowserListening, setIsBrowserListening] = useState(false);
-  const [vuLevel, setVuLevel] = useState(0);
-  const [simInput, setSimInput] = useState("");
-  const [lastResult, setLastResult] = useState<PipelineResponse | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [statusHint, setStatusHint] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showHelp, setShowHelp] = useState(false);
 
+  const [copiedUz, setCopiedUz] = useState(false);
   const [targetLang, setTargetLang] = useState<TranslationLanguage>("ru");
   const [translatedText, setTranslatedText] = useState("");
   const [isTranslating, setIsTranslating] = useState(false);
-  const [translationLatencyMs, setTranslationLatencyMs] = useState<number | null>(null);
-  const [translationProvider, setTranslationProvider] = useState<string>("");
   const [translationError, setTranslationError] = useState<string | null>(null);
   const [copiedTranslation, setCopiedTranslation] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<PcmVoiceRecorder | null>(null);
-  const speechRecRef = useRef<{ stop: () => void } | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const translateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const targetLangRef = useRef<TranslationLanguage>("ru");
-  const sttOverrideRef = useRef<string>("");
-  const llmOverrideRef = useRef<string>("");
-  const isRecordingRef = useRef(false);
-  const isHandsFreeRef = useRef(false);
-  const pttActiveRef = useRef(false);
+  const translatedTextRef = useRef<string>("");
+  const isListeningRef = useRef(false);
+  const pressStartedAtRef = useRef(0);
+  const keyboardPttRef = useRef(false);
   const lastTranslatedKeyRef = useRef<string>("");
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     targetLangRef.current = targetLang;
   }, [targetLang]);
 
   useEffect(() => {
-    sttOverrideRef.current = sttOverride;
-  }, [sttOverride]);
+    translatedTextRef.current = translatedText;
+  }, [translatedText]);
 
   useEffect(() => {
-    llmOverrideRef.current = llmOverride;
-  }, [llmOverride]);
+    isListeningRef.current = isListening;
+  }, [isListening]);
 
-  useEffect(() => {
-    isRecordingRef.current = isRecording;
-  }, [isRecording]);
-
-  useEffect(() => {
-    isHandsFreeRef.current = isHandsFree;
-  }, [isHandsFree]);
+  const persistWorkspace = useCallback(
+    (text: string, lang: TranslationLanguage, translation: string) => {
+      try {
+        const payload: SavedWorkspaceState = {
+          text,
+          targetLang: lang,
+          translatedText: translation,
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch {
+        // Ignore storage quota errors
+      }
+    },
+    []
+  );
 
   const requestTranslation = useCallback(
     (text: string, langOverride?: TranslationLanguage, force = false) => {
@@ -149,9 +110,9 @@ export default function VoiceEditorWorkspace() {
       if (!clean) {
         lastTranslatedKeyRef.current = "";
         setTranslatedText("");
-        setTranslationLatencyMs(null);
         setTranslationError(null);
         setIsTranslating(false);
+        persistWorkspace("", lang, "");
         return;
       }
 
@@ -171,11 +132,10 @@ export default function VoiceEditorWorkspace() {
           type: "translate",
           text: clean,
           target_language: lang,
-          provider: llmOverrideRef.current || null,
         })
       );
     },
-    []
+    [persistWorkspace]
   );
 
   const editor = useEditor({
@@ -184,13 +144,13 @@ export default function VoiceEditorWorkspace() {
       StarterKit,
       Placeholder.configure({
         placeholder:
-          "Mikrofonni bosib o'zbekcha gapiring yoki pastdan ovozli buyruq sinab ko'ring...",
+          "Chapdagi sharni bosib turib o'zbekcha gapiring — matn va tarjima shu yerda jonli paydo bo'ladi...",
       }),
     ],
     content: "",
     editorProps: {
       attributes: {
-        class: "tiptap px-6 py-4 text-base text-slate-100",
+        class: "tiptap px-6 py-5 text-[15px] sm:text-base text-slate-900",
       },
     },
     onUpdate: ({ editor: activeEd }) => {
@@ -198,6 +158,7 @@ export default function VoiceEditorWorkspace() {
         clearTimeout(translateDebounceRef.current);
       }
       const serialized = serializeEditorState(activeEd);
+      persistWorkspace(serialized, targetLangRef.current, translatedTextRef.current);
       translateDebounceRef.current = setTimeout(() => {
         requestTranslation(serialized);
       }, 650);
@@ -207,50 +168,75 @@ export default function VoiceEditorWorkspace() {
   const editorRef = useRef(editor);
   useEffect(() => {
     editorRef.current = editor;
-  }, [editor]);
-
-  const handlePipelineResult = useCallback((payload: PipelineResponse) => {
-    setLastResult(payload);
-    setStageText("");
-    setErrorMsg(null);
-    setActiveProviders({
-      stt: payload.providers.stt_provider,
-      llm: payload.providers.llm_provider,
-    });
-
-    const activeEditor = editorRef.current;
-    if (activeEditor) {
-      if (payload.client_action === "UNDO") {
-        activeEditor.chain().focus().undo().run();
-        requestTranslation(serializeEditorState(activeEditor), undefined, true);
-      } else if (payload.client_action === "REDO") {
-        activeEditor.chain().focus().redo().run();
-        requestTranslation(serializeEditorState(activeEditor), undefined, true);
-      } else if (payload.diff.changed) {
-        applyTextToTiptap(activeEditor, payload.diff.new_text);
-        requestTranslation(payload.diff.new_text);
+    if (editor && !hydratedRef.current) {
+      hydratedRef.current = true;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<SavedWorkspaceState>;
+          if (parsed.targetLang === "ru" || parsed.targetLang === "en") {
+            setTargetLang(parsed.targetLang);
+            targetLangRef.current = parsed.targetLang;
+          }
+          if (parsed.text) {
+            applyTextToTiptap(editor, parsed.text);
+          }
+          if (parsed.translatedText) {
+            setTranslatedText(parsed.translatedText);
+          }
+        }
+      } catch {
+        // Ignore corrupt localStorage payload
       }
     }
+  }, [editor]);
 
-    setHistory((prev) => [
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        timestamp: new Date().toLocaleTimeString(),
-        rawTranscript: payload.raw_transcript,
-        command: payload.command,
-        strategy: payload.diff.applied_strategy,
-        totalMs: payload.latency.total_ms,
-      },
-      ...prev.slice(0, 24),
-    ]);
-  }, [requestTranslation]);
+  const getCurrentText = useCallback((): string => {
+    if (!editorRef.current) return "";
+    return serializeEditorState(editorRef.current);
+  }, []);
+
+  const handlePipelineResult = useCallback(
+    (payload: PipelineResponse) => {
+      setStageText("");
+      setErrorMsg(null);
+      setStatusHint(null);
+
+      const activeEditor = editorRef.current;
+      if (!activeEditor) return;
+
+      if (payload.client_action === "UNDO") {
+        activeEditor.chain().focus().undo().run();
+        const restored = serializeEditorState(activeEditor);
+        requestTranslation(restored, undefined, true);
+        return;
+      }
+
+      if (payload.client_action === "REDO") {
+        activeEditor.chain().focus().redo().run();
+        const restored = serializeEditorState(activeEditor);
+        requestTranslation(restored, undefined, true);
+        return;
+      }
+
+      if (payload.diff.changed) {
+        applyTextToTiptap(activeEditor, payload.diff.new_text);
+        persistWorkspace(payload.diff.new_text, targetLangRef.current, translatedTextRef.current);
+        requestTranslation(payload.diff.new_text);
+      } else if (payload.note && !payload.raw_transcript) {
+        setStatusHint(payload.note);
+        setTimeout(() => setStatusHint(null), 2600);
+      }
+    },
+    [persistWorkspace, requestTranslation]
+  );
 
   useEffect(() => {
     let unmounted = false;
 
     const connect = () => {
       if (unmounted) return;
-      const ws = new WebSocket(resolveWebSocketUrl());
+      const ws = new WebSocket(resolveWsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -269,9 +255,7 @@ export default function VoiceEditorWorkspace() {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as WSServerMessage;
-          if (msg.type === "connected") {
-            setActiveProviders({ stt: msg.active_stt, llm: msg.active_llm });
-          } else if (msg.type === "status") {
+          if (msg.type === "status") {
             setStageText(msg.stage);
           } else if (msg.type === "result") {
             handlePipelineResult(msg.payload);
@@ -281,10 +265,13 @@ export default function VoiceEditorWorkspace() {
           } else if (msg.type === "translation_result") {
             if (msg.payload.target_language === targetLangRef.current) {
               setTranslatedText(msg.payload.translated_text);
-              setTranslationLatencyMs(msg.payload.latency_ms);
-              setTranslationProvider(msg.payload.provider);
               setTranslationError(null);
               setIsTranslating(false);
+              persistWorkspace(
+                getCurrentText(),
+                msg.payload.target_language,
+                msg.payload.translated_text
+              );
             }
           } else if (msg.type === "translation_error") {
             setIsTranslating(false);
@@ -294,7 +281,7 @@ export default function VoiceEditorWorkspace() {
             setErrorMsg(msg.message);
           }
         } catch {
-          setErrorMsg("Serverdan noto'g'ri WebSocket javobi keldi.");
+          setErrorMsg("Serverdan kutilmagan javob keldi.");
         }
       };
     };
@@ -306,756 +293,393 @@ export default function VoiceEditorWorkspace() {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (translateDebounceRef.current) clearTimeout(translateDebounceRef.current);
       wsRef.current?.close();
-      speechRecRef.current?.stop();
       void recorderRef.current?.stop();
     };
-  }, [handlePipelineResult]);
+  }, [getCurrentText, handlePipelineResult, persistWorkspace]);
 
-  const getCurrentText = useCallback((): string => {
-    if (!editorRef.current) return "";
-    return serializeEditorState(editorRef.current);
-  }, []);
-
-  const sendTextCommand = useCallback(
-    (transcript: string) => {
-      const clean = transcript.trim();
-      const ws = wsRef.current;
-      if (!clean || !ws || ws.readyState !== WebSocket.OPEN) return;
-
-      setErrorMsg(null);
-      ws.send(
-        JSON.stringify({
-          type: "text_command",
-          editor_state: getCurrentText(),
-          raw_transcript: clean,
-          llm_provider: llmOverride || null,
-        })
-      );
-    },
-    [getCurrentText, llmOverride]
-  );
-
-  const sendStartUtterance = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(
-      JSON.stringify({
-        type: "start_utterance",
-        editor_state: getCurrentText(),
-        mime_type: "audio/pcm",
-        sample_rate: 16000,
-        stt_provider: sttOverrideRef.current || null,
-        llm_provider: llmOverrideRef.current || null,
-      })
-    );
-  }, [getCurrentText]);
-
-  const sendEndUtterance = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(
-      JSON.stringify({
-        type: "end_utterance",
-        editor_state: getCurrentText(),
-        stt_provider: sttOverrideRef.current || null,
-        llm_provider: llmOverrideRef.current || null,
-      })
-    );
-  }, [getCurrentText]);
-
-  const startManualCapture = useCallback(async () => {
+  const startHoldToTalk = useCallback(async () => {
+    if (isListeningRef.current) return;
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setErrorMsg("WebSocket serveriga ulanilmagan. Backend ishlayotganini tekshiring.");
+      setErrorMsg("Serverga ulanilmagan. Sahifani yangilang yoki serverni tekshiring.");
       return;
     }
-    if (isRecordingRef.current || isHandsFreeRef.current) return;
 
     try {
       setErrorMsg(null);
+      setStatusHint(null);
+      pressStartedAtRef.current = performance.now();
+      isListeningRef.current = true;
+      setIsListening(true);
+
       const recorder = new PcmVoiceRecorder();
       recorderRef.current = recorder;
-      sendStartUtterance();
+      let startedUtterance = false;
+      const pendingChunks: ArrayBuffer[] = [];
 
       await recorder.start(
         {
           onPcmChunk: (chunk) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(chunk);
+            if (!isListeningRef.current || ws.readyState !== WebSocket.OPEN) return;
+            if (!startedUtterance) {
+              pendingChunks.push(chunk);
+              return;
             }
+            ws.send(chunk);
           },
           onLevel: (rms) => {
-            setVuLevel(Math.min(100, Math.round(rms * 450)));
+            setAudioLevel(Math.min(1, rms * 5.2));
           },
         },
         { autoVad: false }
       );
-      setIsRecording(true);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Mikrofonga ruxsat olinmadi.";
-      setErrorMsg(`Mikrofon xatoligi: ${message}`);
-      setIsRecording(false);
-    }
-  }, [sendStartUtterance]);
 
-  const stopManualCapture = useCallback(async () => {
-    if (!isRecordingRef.current) return;
-    await recorderRef.current?.stop();
-    setIsRecording(false);
-    setVuLevel(0);
-    sendEndUtterance();
-  }, [sendEndUtterance]);
+      // Guard if user released hold-to-talk while getUserMedia prompt/init was resolving
+      if (!isListeningRef.current) {
+        await recorder.stop();
+        return;
+      }
 
-  const toggleRecording = useCallback(async () => {
-    if (isHandsFreeRef.current) {
-      await recorderRef.current?.stop();
-      setIsHandsFree(false);
-      setVadSpeaking(false);
-      setVuLevel(0);
-      return;
-    }
-    if (!isRecordingRef.current) {
-      await startManualCapture();
-    } else {
-      await stopManualCapture();
-    }
-  }, [startManualCapture, stopManualCapture]);
-
-  const toggleHandsFree = useCallback(async () => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      setErrorMsg("WebSocket serveriga ulanilmagan. Backend ishlayotganini tekshiring.");
-      return;
-    }
-
-    if (isHandsFreeRef.current) {
-      await recorderRef.current?.stop();
-      setIsHandsFree(false);
-      setVadSpeaking(false);
-      setVuLevel(0);
-      return;
-    }
-
-    if (isRecordingRef.current) {
-      await stopManualCapture();
-    }
-
-    try {
-      setErrorMsg(null);
-      const recorder = new PcmVoiceRecorder();
-      recorderRef.current = recorder;
-      await recorder.start(
-        {
-          onUtteranceStart: () => {
-            sendStartUtterance();
-          },
-          onPcmChunk: (chunk) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(chunk);
-            }
-          },
-          onUtteranceCommit: () => {
-            sendEndUtterance();
-          },
-          onUtteranceCancel: () => {
-            setStageText("");
-          },
-          onVadSpeakingChange: (speaking) => {
-            setVadSpeaking(speaking);
-          },
-          onLevel: (rms) => {
-            setVuLevel(Math.min(100, Math.round(rms * 450)));
-          },
-        },
-        {
-          autoVad: true,
-          speechThreshold: 0.015,
-          silenceCommitMs: 1200,
-          minSpeechMs: 240,
-          preRollCount: 3,
-        }
+      ws.send(
+        JSON.stringify({
+          type: "start_utterance",
+          editor_state: getCurrentText(),
+          mime_type: "audio/pcm",
+          sample_rate: 16000,
+        })
       );
-      setIsHandsFree(true);
+      startedUtterance = true;
+      for (const chunk of pendingChunks) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(chunk);
+        }
+      }
     } catch (err) {
+      isListeningRef.current = false;
+      setIsListening(false);
+      setAudioLevel(0);
       const message =
-        err instanceof Error ? err.message : "Mikrofonga ruxsat olinmadi.";
-      setErrorMsg(`Mikrofon xatoligi: ${message}`);
-      setIsHandsFree(false);
-      setVadSpeaking(false);
+        err instanceof Error ? err.message : "Mikrofonga ruxsat berilmadi.";
+      setErrorMsg(`Mikrofon: ${message}`);
     }
-  }, [sendEndUtterance, sendStartUtterance, stopManualCapture]);
+  }, [getCurrentText]);
+
+  const endHoldToTalk = useCallback(async () => {
+    if (!isListeningRef.current) return;
+    const heldMs = performance.now() - pressStartedAtRef.current;
+    isListeningRef.current = false;
+    setIsListening(false);
+    setAudioLevel(0);
+
+    await recorderRef.current?.stop();
+
+    if (heldMs < 180) {
+      setStatusHint("Gapirish uchun bosib turing");
+      setTimeout(() => setStatusHint(null), 1800);
+      return;
+    }
+
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      setStageText("processing");
+      ws.send(
+        JSON.stringify({
+          type: "end_utterance",
+          editor_state: getCurrentText(),
+        })
+      );
+    }
+  }, [getCurrentText]);
 
   useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false;
+      return (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT"
+      );
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.code === "Space" && !e.repeat) {
+      if (e.repeat || e.code !== "Space") return;
+      const useCtrlSpace = e.ctrlKey;
+      const usePlainSpace = !e.ctrlKey && !e.altKey && !e.metaKey && !isTypingTarget(e.target);
+
+      if ((useCtrlSpace || usePlainSpace) && !isListeningRef.current) {
         e.preventDefault();
-        if (!isRecordingRef.current && !isHandsFreeRef.current) {
-          pttActiveRef.current = true;
-          void startManualCapture();
-        }
+        keyboardPttRef.current = true;
+        void startHoldToTalk();
       }
     };
 
-    const releasePtt = () => {
-      if (!pttActiveRef.current) return;
-      pttActiveRef.current = false;
-      void stopManualCapture();
+    const releaseKeyboardPtt = () => {
+      if (!keyboardPttRef.current) return;
+      keyboardPttRef.current = false;
+      void endHoldToTalk();
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (pttActiveRef.current && (e.code === "Space" || e.key === "Control")) {
+      if (keyboardPttRef.current && (e.code === "Space" || e.key === "Control")) {
         e.preventDefault();
-        releasePtt();
+        releaseKeyboardPtt();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", releasePtt);
+    window.addEventListener("blur", releaseKeyboardPtt);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", releasePtt);
+      window.removeEventListener("blur", releaseKeyboardPtt);
     };
-  }, [startManualCapture, stopManualCapture]);
+  }, [endHoldToTalk, startHoldToTalk]);
 
-  const toggleBrowserSpeech = useCallback(() => {
-    interface BrowserSpeechResultEvent {
-      results?: ArrayLike<ArrayLike<{ transcript?: string }>>;
-    }
-    interface BrowserSpeechErrorEvent {
-      error?: string;
-    }
-    interface BrowserSpeechRecognition {
-      lang: string;
-      interimResults: boolean;
-      continuous: boolean;
-      onstart: (() => void) | null;
-      onresult: ((e: BrowserSpeechResultEvent) => void) | null;
-      onerror: ((e: BrowserSpeechErrorEvent) => void) | null;
-      onend: (() => void) | null;
-      start: () => void;
-      stop: () => void;
-    }
-
-    const win = window as unknown as {
-      SpeechRecognition?: new () => BrowserSpeechRecognition;
-      webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
-    };
-    const SR = win.SpeechRecognition || win.webkitSpeechRecognition;
-    if (!SR) {
-      setErrorMsg(
-        "Brauzeringiz Web Speech API ni qo'llamaydi (Chrome yoki Edge ishlating)."
-      );
-      return;
-    }
-
-    if (isBrowserListening && speechRecRef.current) {
-      speechRecRef.current.stop();
-      return;
-    }
-
-    const rec = new SR();
-    rec.lang = "uz-UZ";
-    rec.interimResults = false;
-    rec.continuous = false;
-    speechRecRef.current = rec;
-
-    rec.onstart = () => {
-      setErrorMsg(null);
-      setIsBrowserListening(true);
-    };
-    rec.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript ?? "";
-      if (transcript.trim()) sendTextCommand(transcript.trim());
-    };
-    rec.onerror = (event) => {
-      setErrorMsg(`Brauzer ovoz xatoligi: ${event.error ?? "noma'lum"}`);
-    };
-    rec.onend = () => {
-      setIsBrowserListening(false);
-    };
-    rec.start();
-  }, [isBrowserListening, sendTextCommand]);
-
-  const handleSimSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!simInput.trim()) return;
-    sendTextCommand(simInput);
-    setSimInput("");
+  const handleCopyUzbek = () => {
+    const txt = getCurrentText();
+    if (!txt.trim()) return;
+    void navigator.clipboard.writeText(txt);
+    setCopiedUz(true);
+    setTimeout(() => setCopiedUz(false), 1500);
   };
 
-  const llmUnderTarget = (lastResult?.latency.llm_ms ?? 0) <= 800;
+  const handleToggleLanguage = () => {
+    const next: TranslationLanguage = targetLang === "ru" ? "en" : "ru";
+    setTargetLang(next);
+    targetLangRef.current = next;
+    requestTranslation(getCurrentText(), next, true);
+  };
+
+  const handleClear = () => {
+    editor?.commands.clearContent(true);
+    requestTranslation("");
+    setStatusHint(null);
+    setErrorMsg(null);
+  };
+
+  const orbCaption = errorMsg
+    ? errorMsg
+    : isListening
+    ? "Gapiring... qo'yib yuboring"
+    : stageText
+    ? "Yozilmoqda..."
+    : statusHint
+    ? statusHint
+    : "Bosib turib gapiring · Space / Ctrl+Space";
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
-      {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900/75 px-5 py-4 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-sky-500/20">
+    <div className="min-h-screen flex flex-col">
+      {/* Minimal Nest-style Top Bar */}
+      <header className="w-full max-w-6xl mx-auto px-5 sm:px-8 pt-6 pb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-950 text-xs font-bold text-white shadow-sm">
             AV
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-white flex items-center gap-2">
-              Aqua Voice Uzbek
-              <span className="rounded-md bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[11px] font-medium text-sky-300">
-                Tiptap + WebSockets
-              </span>
-            </h1>
-            <p className="text-xs text-slate-400">
-              O&apos;zbek tilida jonli ovozli kiritish, Intent Detection va Text Diff Engine
-            </p>
-          </div>
+          </span>
+          <span className="text-[15px] font-semibold tracking-tight text-slate-900">
+            Aqua Voice
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm backdrop-blur">
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 ${
-              wsConnected
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                : "border-rose-500/30 bg-rose-500/10 text-rose-300"
+            className={`h-2 w-2 rounded-full ${
+              wsConnected ? "bg-emerald-500" : "bg-amber-400 animate-pulse"
             }`}
-          >
-            {wsConnected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-            {wsConnected
-              ? stageText
-                ? `Holat: ${stageText}...`
-                : "WebSocket Ulangan"
-              : "Ulanmoqda..."}
-          </span>
-
-          <span className="rounded-full border border-slate-700 bg-slate-800/80 px-3 py-1 text-slate-300">
-            STT: <strong className="text-sky-300">{activeProviders.stt}</strong> · LLM:{" "}
-            <strong className="text-emerald-300">{activeProviders.llm}</strong>
-          </span>
+          />
+          {wsConnected ? "Tayyor" : "Ulanmoqda..."}
         </div>
       </header>
 
-      {/* Main Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left: Rich Text Tiptap Editor */}
-        <section className="lg:col-span-7 flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden">
-          {/* Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-4 py-2.5">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => editor?.chain().focus().toggleBold().run()}
-                className={`rounded-lg p-1.5 transition ${
-                  editor?.isActive("bold")
-                    ? "bg-sky-500/20 text-sky-300"
-                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                }`}
-                title="Qalin (Bold)"
-              >
-                <Bold className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-                className={`rounded-lg p-1.5 transition ${
-                  editor?.isActive("heading", { level: 1 })
-                    ? "bg-sky-500/20 text-sky-300"
-                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                }`}
-                title="Sarlavha (H1)"
-              >
-                <Heading1 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => editor?.chain().focus().toggleBulletList().run()}
-                className={`rounded-lg p-1.5 transition ${
-                  editor?.isActive("bulletList")
-                    ? "bg-sky-500/20 text-sky-300"
-                    : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                }`}
-                title="Ro'yxat (Bullet List)"
-              >
-                <List className="h-4 w-4" />
-              </button>
-            </div>
+      {/* Main 2-Column Layout matching sketch */}
+      <main className="flex-1 w-full max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10 flex items-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
+          {/* Left Column: Apple Siri Dark Squircle Voice Orb */}
+          <div className="lg:col-span-4 flex flex-col items-center justify-center gap-4">
+            <VoiceOrb
+              isListening={isListening}
+              isProcessing={Boolean(stageText)}
+              audioLevel={audioLevel}
+              disabled={!wsConnected}
+              onPressStart={() => void startHoldToTalk()}
+              onPressEnd={() => void endHoldToTalk()}
+            />
+            <p
+              className={`text-center text-xs sm:text-sm font-medium transition-colors ${
+                errorMsg
+                  ? "text-rose-600"
+                  : isListening
+                  ? "text-sky-700"
+                  : "text-slate-500"
+              }`}
+            >
+              {orbCaption}
+            </p>
+          </div>
 
-            <div className="flex items-center gap-1.5">
-              {lastResult && (
-                <span className="rounded-md border border-sky-500/30 bg-sky-500/15 px-2 py-0.5 text-[11px] font-medium text-sky-300">
-                  {lastResult.command.action} · {lastResult.diff.applied_strategy}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => editor?.chain().focus().undo().run()}
-                disabled={!editor?.can().undo()}
-                className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 disabled:opacity-35"
-                title="Bekor qilish (Undo)"
-              >
-                <Undo2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => editor?.chain().focus().redo().run()}
-                disabled={!editor?.can().redo()}
-                className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700 disabled:opacity-35"
-                title="Qaytarish (Redo)"
-              >
-                <Redo2 className="h-4 w-4" />
-              </button>
+          {/* Right Column: 5 Clean Action Buttons + Main Editor & Translation Card */}
+          <div className="lg:col-span-8 flex flex-col gap-3.5 relative">
+            {/* 5 Top-Right Action Squares (from sketch) */}
+            <div className="flex items-center justify-between sm:justify-start gap-2.5">
+              {/* 1. Undo */}
               <button
                 type="button"
                 onClick={() => {
-                  editor?.commands.clearContent(true);
-                  requestTranslation("");
+                  editor?.chain().focus().undo().run();
+                  if (editor) {
+                    requestTranslation(serializeEditorState(editor), undefined, true);
+                  }
                 }}
-                className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-rose-300 hover:bg-slate-700"
+                disabled={!editor?.can().undo()}
+                title="Bekor qilish (Undo)"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:border-slate-300 disabled:opacity-35"
+              >
+                <Undo2 className="h-4 w-4" />
+              </button>
+
+              {/* 2. Copy Uzbek */}
+              <button
+                type="button"
+                onClick={handleCopyUzbek}
+                title="O'zbekcha matnni nusxalash"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:border-slate-300"
+              >
+                {copiedUz ? (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+              </button>
+
+              {/* 3. Language Toggle RU / EN */}
+              <button
+                type="button"
+                onClick={handleToggleLanguage}
+                title="Tarjima tilini almashtirish (Ruscha / Inglizcha)"
+                className="inline-flex h-11 px-3.5 items-center justify-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white/85 text-xs font-semibold text-slate-800 shadow-sm backdrop-blur transition hover:bg-white hover:border-slate-300"
+              >
+                <Languages className="h-4 w-4 text-teal-600" />
+                <span>{targetLang.toUpperCase()}</span>
+              </button>
+
+              {/* 4. Clear */}
+              <button
+                type="button"
+                onClick={handleClear}
                 title="Matnni tozalash"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/85 text-slate-700 shadow-sm backdrop-blur transition hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"
               >
                 <Eraser className="h-4 w-4" />
               </button>
-            </div>
-          </div>
 
-          {/* Tiptap Canvas */}
-          <div className="flex-1 min-h-[220px] bg-slate-950/30">
-            <EditorContent editor={editor} />
-          </div>
-
-          {/* Live Translation Panel (RU / EN) */}
-          <div className="border-t border-slate-800 bg-slate-900/55 px-5 py-3.5 space-y-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Languages className="h-4 w-4 text-emerald-400" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                  Tarjima
-                </span>
-                <div className="inline-flex rounded-lg border border-slate-700 bg-slate-950/80 p-0.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTargetLang("ru");
-                      targetLangRef.current = "ru";
-                      requestTranslation(getCurrentText(), "ru", true);
-                    }}
-                    className={`rounded-md px-2.5 py-1 font-medium transition ${
-                      targetLang === "ru"
-                        ? "bg-emerald-500/20 text-emerald-300"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Ruscha (RU)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTargetLang("en");
-                      targetLangRef.current = "en";
-                      requestTranslation(getCurrentText(), "en", true);
-                    }}
-                    className={`rounded-md px-2.5 py-1 font-medium transition ${
-                      targetLang === "en"
-                        ? "bg-sky-500/20 text-sky-300"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Inglizcha (EN)
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-1.5 text-xs">
-                {isTranslating && (
-                  <span className="text-sky-300 animate-pulse">Tarjima qilinmoqda...</span>
-                )}
-                {!isTranslating && translationLatencyMs !== null && (
-                  <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-[11px] text-slate-300">
-                    {translationProvider ? `${translationProvider} · ` : ""}
-                    {translationLatencyMs.toFixed(0)} ms
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => requestTranslation(getCurrentText(), targetLang, true)}
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:bg-slate-700"
-                  title="Qayta tarjima qilish"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${isTranslating ? "animate-spin" : ""}`} />
-                </button>
-                <button
-                  type="button"
-                  disabled={!translatedText}
-                  onClick={() => {
-                    if (!translatedText) return;
-                    void navigator.clipboard.writeText(translatedText);
-                    setCopiedTranslation(true);
-                    setTimeout(() => setCopiedTranslation(false), 1500);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-300 hover:bg-slate-700 disabled:opacity-35"
-                  title="Tarjimani nusxalash"
-                >
-                  {copiedTranslation ? (
-                    <>
-                      <Check className="h-3.5 w-3.5 text-emerald-400" /> Nusxa olindi
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3.5 w-3.5" /> Nusxa
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {translationError ? (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-                {translationError}
-              </div>
-            ) : (
-              <div className="min-h-[96px] max-h-48 overflow-y-auto rounded-xl border border-slate-800/90 bg-slate-950/60 px-4 py-3 text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">
-                {translatedText || (
-                  <span className="text-slate-500">
-                    O&apos;zbekcha matn kiritilganda bu yerda avtomatik{" "}
-                    {targetLang === "ru" ? "ruscha" : "inglizcha"} tarjimasi chiqadi...
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Voice & Simulation Dock */}
-          <div className="border-t border-slate-800 bg-slate-950/80 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => void toggleRecording()}
-                  className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition shadow-lg ${
-                    isRecording
-                      ? "mic-pulse bg-rose-500 text-white hover:bg-rose-400 shadow-rose-500/25"
-                      : "bg-sky-500 text-slate-950 hover:bg-sky-400 shadow-sky-500/20"
-                  }`}
-                >
-                  {isRecording ? (
-                    <>
-                      <MicOff className="h-4 w-4" /> To&apos;xtatish va yuborish
-                    </>
-                  ) : (
-                    <>
-                      <Mic className="h-4 w-4" /> Gapirish (Ctrl+Space)
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void toggleHandsFree()}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition ${
-                    isHandsFree
-                      ? vadSpeaking
-                        ? "mic-pulse border-emerald-400 bg-emerald-500/25 text-emerald-200"
-                        : "border-sky-400/60 bg-sky-500/20 text-sky-200"
-                      : "border-violet-500/40 bg-violet-500/15 text-violet-300 hover:bg-violet-500/25"
-                  }`}
-                >
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      isHandsFree
-                        ? vadSpeaking
-                          ? "bg-emerald-400 animate-ping"
-                          : "bg-sky-400"
-                        : "bg-violet-400"
-                    }`}
-                  />
-                  {isHandsFree
-                    ? vadSpeaking
-                      ? "Gap eshitilmoqda..."
-                      : "Hands-Free (Auto-VAD)"
-                    : "Hands-Free (Auto-VAD)"}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={toggleBrowserSpeech}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition ${
-                    isBrowserListening
-                      ? "mic-pulse border-rose-400 bg-rose-500/25 text-rose-200"
-                      : "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-                  }`}
-                >
-                  <Mic className="h-3.5 w-3.5" />
-                  {isBrowserListening ? "Eshitilmoqda..." : "Brauzer (uz-UZ)"}
-                </button>
-
-                <div className="w-20 h-2.5 rounded-full bg-slate-800 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-400 to-sky-400 transition-all duration-75"
-                    style={{ width: `${vuLevel}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                <label className="text-slate-400">STT:</label>
-                <select
-                  value={sttOverride}
-                  onChange={(e) => setSttOverride(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"
-                >
-                  <option value="">auto</option>
-                  <option value="gemini">gemini (multimodal)</option>
-                  <option value="local_whisper">local_whisper (offline)</option>
-                  <option value="mock">mock</option>
-                  <option value="mohirpool">mohirpool</option>
-                  <option value="openai">openai</option>
-                </select>
-
-                <label className="text-slate-400 ml-1">LLM:</label>
-                <select
-                  value={llmOverride}
-                  onChange={(e) => setLlmOverride(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200"
-                >
-                  <option value="">auto</option>
-                  <option value="mock">mock</option>
-                  <option value="gemini">gemini</option>
-                  <option value="openai">openai</option>
-                </select>
-              </div>
-            </div>
-
-            <form onSubmit={handleSimSubmit} className="flex gap-2">
-              <input
-                type="text"
-                value={simInput}
-                onChange={(e) => setSimInput(e.target.value)}
-                placeholder="Ovozli buyruq / transkriptni matn sifatida sinash..."
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none"
-              />
+              {/* 5. Help / Voice Commands */}
               <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/40 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/25 transition"
+                type="button"
+                onClick={() => setShowHelp((prev) => !prev)}
+                title="Ovozli buyruqlar qo'llanmasi"
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border shadow-sm backdrop-blur transition ${
+                  showHelp
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200/90 bg-white/85 text-slate-700 hover:bg-white hover:border-slate-300"
+                }`}
               >
-                <Send className="h-3.5 w-3.5" /> Yuborish
+                <HelpCircle className="h-4 w-4" />
               </button>
-            </form>
-
-            <div className="flex flex-wrap gap-1.5">
-              {UZBEK_PRESETS.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => sendTextCommand(preset.cmd)}
-                  className={`rounded-lg border bg-slate-900 px-2.5 py-1 text-xs transition ${preset.tone}`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Right: JSON Output Schema, Latency & History */}
-        <aside className="lg:col-span-5 space-y-4">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-sky-400" /> Intent & Diff Inspector
-              </h2>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-xs font-mono ${
-                  lastResult
-                    ? llmUnderTarget
-                      ? "bg-emerald-500/20 text-emerald-300"
-                      : "bg-amber-500/20 text-amber-300"
-                    : "bg-slate-800 text-slate-400"
-                }`}
-              >
-                {lastResult ? `${lastResult.latency.total_ms.toFixed(0)} ms` : "0 ms"}
-              </span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
-                <div className="text-[11px] text-slate-400">STT</div>
-                <div className="text-sm font-mono font-semibold text-sky-300">
-                  {lastResult ? `${lastResult.latency.stt_ms.toFixed(1)} ms` : "0 ms"}
+            {/* Optional Help Popover */}
+            {showHelp && (
+              <div className="rounded-2xl border border-slate-200/90 bg-white/95 p-4 text-xs text-slate-600 shadow-lg backdrop-blur-xl space-y-1.5">
+                <p className="font-semibold text-slate-900">Ovozli buyruqlar:</p>
+                <p>
+                  • <span className="font-medium text-slate-800">&quot;... so&apos;zini ... deb o&apos;zgartir&quot;</span> — so‘zni almashtiradi
+                </p>
+                <p>
+                  • <span className="font-medium text-slate-800">&quot;oxirgi gapni o&apos;chir&quot;</span> — oxirgi gapni olib tashlaydi
+                </p>
+                <p>
+                  • <span className="font-medium text-slate-800">&quot;oxirgi gapni ro&apos;yxatga aylantir&quot;</span> — ro‘yxatga soladi
+                </p>
+                <p>
+                  • <span className="font-medium text-slate-800">&quot;bekor qil&quot;</span> — oxirgi o‘zgarishni orqaga qaytaradi
+                </p>
+              </div>
+            )}
+
+            {/* Main Frosted Glass Card: Uzbek Editor + Translation Below */}
+            <div className="overflow-hidden rounded-[28px] border border-slate-200/85 bg-white/85 shadow-[0_24px_70px_-20px_rgba(15,23,42,0.12)] backdrop-blur-xl">
+              {/* Uzbek Editor */}
+              <div className="min-h-[210px] max-h-[340px] overflow-y-auto">
+                <EditorContent editor={editor} />
+              </div>
+
+              {/* Translation Section Underneath */}
+              <div className="border-t border-slate-200/75 bg-slate-50/75 px-6 py-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-teal-700">
+                    {targetLang === "ru" ? "Ruscha tarjima" : "Inglizcha tarjima"}
+                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    {isTranslating && (
+                      <span className="text-[11px] text-slate-500 animate-pulse mr-1">
+                        Tarjima...
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => requestTranslation(getCurrentText(), targetLang, true)}
+                      title="Qayta tarjima"
+                      className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200/60 hover:text-slate-800 transition"
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${isTranslating ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!translatedText}
+                      onClick={() => {
+                        if (!translatedText) return;
+                        void navigator.clipboard.writeText(translatedText);
+                        setCopiedTranslation(true);
+                        setTimeout(() => setCopiedTranslation(false), 1500);
+                      }}
+                      title="Tarjimani nusxalash"
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 disabled:opacity-35 transition"
+                    >
+                      {copiedTranslation ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 text-emerald-600" /> Olindi
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3.5 w-3.5" /> Nusxa
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
-                <div className="text-[11px] text-slate-400">LLM (&lt;800ms)</div>
-                <div className="text-sm font-mono font-semibold text-emerald-300">
-                  {lastResult ? `${lastResult.latency.llm_ms.toFixed(1)} ms` : "0 ms"}
-                </div>
-              </div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5">
-                <div className="text-[11px] text-slate-400">Umumiy</div>
-                <div className="text-sm font-mono font-semibold text-white">
-                  {lastResult ? `${lastResult.latency.total_ms.toFixed(1)} ms` : "0 ms"}
-                </div>
-              </div>
-            </div>
 
-            <div>
-              <div className="text-xs text-slate-400 mb-1">Xom transkript (`raw_transcript`):</div>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-sm text-slate-200 min-h-[38px]">
-                {lastResult?.raw_transcript || "—"}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs text-slate-400 mb-1">LLM JSON Output Schema:</div>
-              <pre className="rounded-xl border border-slate-800 bg-slate-950/90 p-3 text-xs font-mono text-emerald-300 overflow-x-auto">
-                {JSON.stringify(
-                  lastResult?.command ?? {
-                    action: "APPEND",
-                    target: "",
-                    replacement: "",
-                    updated_full_text: null,
-                    confidence: 0.0,
-                  },
-                  null,
-                  2
+                {translationError ? (
+                  <p className="text-xs text-rose-600">{translationError}</p>
+                ) : (
+                  <div className="min-h-[76px] max-h-40 overflow-y-auto text-[14px] sm:text-[15px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                    {translatedText || (
+                      <span className="text-slate-400">
+                        {targetLang === "ru"
+                          ? "O'zbekcha gapirganingizda ruscha tarjimasi shu yerda chiqadi..."
+                          : "O'zbekcha gapirganingizda inglizcha tarjimasi shu yerda chiqadi..."}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </pre>
-            </div>
-
-            {(errorMsg || lastResult?.note) && (
-              <div
-                className={`rounded-xl border px-3 py-2 text-xs ${
-                  errorMsg
-                    ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                }`}
-              >
-                {errorMsg ?? lastResult?.note}
               </div>
-            )}
+            </div>
           </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
-            <h2 className="text-sm font-semibold text-white mb-2">Amallar Tarixi</h2>
-            {history.length === 0 ? (
-              <p className="text-xs text-slate-500">Hali amallar bajarilmadi.</p>
-            ) : (
-              <ul className="space-y-2 max-h-56 overflow-y-auto text-xs">
-                {history.map((item) => (
-                  <li
-                    key={item.id}
-                    className="rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate text-slate-200">
-                      <strong className="text-sky-300">{item.command.action}</strong> —{" "}
-                      {item.rawTranscript}
-                    </span>
-                    <span className="shrink-0 font-mono text-slate-400">
-                      {item.totalMs.toFixed(0)}ms
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </aside>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

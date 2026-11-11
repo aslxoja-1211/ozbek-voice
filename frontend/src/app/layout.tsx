@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Aqua Voice Uzbek — AI Ovozli Matn Muharriri",
+  title: "Aqua Voice — O'zbekcha Ovozli Muharrir",
   description:
-    "O'zbek tilida jonli ovozli diktovka, Intent Detection va Text Diff Engine asosidagi aqlli matn muharriri.",
+    "O'zbek tilida bosib turib gapirish, jonli AI tahrirlash va rus/ingliz tillariga tezkor tarjima.",
 };
 
 export default function RootLayout({
@@ -13,8 +13,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="uz" className="dark">
-      <body className="min-h-screen antialiased selection:bg-sky-500/30 selection:text-sky-100">
+    <html lang="uz">
+      <body className="min-h-screen antialiased selection:bg-teal-500/20 selection:text-slate-950">
         {children}
       </body>
     </html>

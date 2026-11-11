@@ -3,76 +3,70 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
-  background-color: #090d16;
-  color: #e2e8f0;
+  background-color: #fbfdfe;
+  color: #0f172a;
+  font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  background-image:
+    radial-gradient(ellipse 65% 48% at 15% 100%, rgba(14, 116, 144, 0.34) 0%, rgba(14, 116, 144, 0) 70%),
+    radial-gradient(ellipse 60% 45% at 52% 102%, rgba(20, 184, 166, 0.28) 0%, rgba(20, 184, 166, 0) 70%),
+    radial-gradient(ellipse 65% 48% at 88% 100%, rgba(52, 211, 153, 0.30) 0%, rgba(52, 211, 153, 0) 72%);
+  background-attachment: fixed;
 }
 
 .tiptap {
   outline: none;
-  min-height: 220px;
+  min-height: 210px;
+  color: #0f172a;
 }
 
 .tiptap p {
-  margin-bottom: 0.75rem;
-  line-height: 1.75;
+  margin-bottom: 0.65rem;
+  line-height: 1.72;
 }
 
 .tiptap h1 {
-  font-size: 1.65rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  color: #f8fafc;
-  margin-top: 0.75rem;
-  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+  color: #020617;
+  margin-top: 0.5rem;
+  margin-bottom: 0.65rem;
 }
 
 .tiptap h2 {
-  font-size: 1.35rem;
+  font-size: 1.22rem;
   font-weight: 600;
-  color: #f1f5f9;
-  margin-top: 0.65rem;
+  letter-spacing: -0.015em;
+  color: #0f172a;
+  margin-top: 0.45rem;
   margin-bottom: 0.5rem;
 }
 
 .tiptap ul {
   list-style-type: disc;
-  padding-left: 1.5rem;
-  margin-bottom: 0.75rem;
+  padding-left: 1.35rem;
+  margin-bottom: 0.65rem;
 }
 
 .tiptap li {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.2rem;
   line-height: 1.65;
 }
 
 .tiptap strong {
-  color: #f8fafc;
+  color: #020617;
   font-weight: 700;
 }
 
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: #64748b;
+  color: #94a3b8;
   pointer-events: none;
   height: 0;
-}
-
-@keyframes pulseRing {
-  0% {
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55);
-  }
-  70% {
-    box-shadow: 0 0 0 14px rgba(56, 189, 248, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
-  }
-}
-
-.mic-pulse {
-  animation: pulseRing 1.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
